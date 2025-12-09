@@ -114,13 +114,19 @@ export class EvidenraClient {
 
   /**
    * Prüft ob Feature verfügbar ist
+   *
+   * Feature-Matrix:
+   * - free: basic-analysis
+   * - basic: akih, genesis, 3-personas
+   * - pro: akih, genesis, 7-personas, advanced-methodologies
+   * - ultimate: alles + team-collaboration + quantum-coding
    */
-  hasFeature(feature: 'genesis' | 'akih' | 'personas' | 'advanced-methodologies'): boolean {
+  hasFeature(feature: 'genesis' | 'akih' | 'personas' | 'advanced-methodologies' | 'team-collaboration' | 'quantum-coding'): boolean {
     const features = {
       free: [],
-      basic: ['akih'],
-      pro: ['akih', 'personas', 'genesis'],
-      ultimate: ['akih', 'personas', 'genesis', 'advanced-methodologies']
+      basic: ['akih', 'genesis', 'personas'],  // Basic hat auch Genesis!
+      pro: ['akih', 'genesis', 'personas', 'advanced-methodologies'],
+      ultimate: ['akih', 'genesis', 'personas', 'advanced-methodologies', 'team-collaboration', 'quantum-coding']
     };
     return features[this.subscription]?.includes(feature) || false;
   }
@@ -284,6 +290,11 @@ export class EvidenraClient {
 
   /**
    * Gibt Subscription-Features zurück
+   *
+   * Feature-Matrix nach Produktversion:
+   * - Basic (7.6): AKIH, Genesis, 3 Personas, Mayring/Thematic
+   * - Pro (1.0): Basic + 7 Personas, Grounded Theory, Discourse
+   * - Ultimate (1.0): Pro + Team Collaboration, Quantum Coding, unlimited
    */
   getSubscriptionFeatures(): {
     subscription: string;
@@ -293,6 +304,7 @@ export class EvidenraClient {
       maxAnalysesPerDay: number;
       personas: string[] | 'all';
       methodologies: string[] | 'all';
+      genesis: boolean;
     };
   } {
     const features = {
@@ -302,34 +314,41 @@ export class EvidenraClient {
           maxDocuments: 3,
           maxAnalysesPerDay: 5,
           personas: ['orthodox'],
-          methodologies: ['basic']
+          methodologies: ['basic'],
+          genesis: false
         }
       },
       basic: {
-        features: ['basic-analysis', 'akih'],
+        // EVIDENRA Basic 7.6 hat: AKIH, Genesis, 3 Personas
+        features: ['basic-analysis', 'akih', 'genesis', 'personas'],
         limits: {
-          maxDocuments: 10,
-          maxAnalysesPerDay: 50,
-          personas: ['orthodox', 'hermeneutic', 'critical'],
-          methodologies: ['mayring', 'thematic']
+          maxDocuments: 20,
+          maxAnalysesPerDay: 100,
+          personas: ['orthodox', 'hermeneutic', 'critical'],  // 3 Personas
+          methodologies: ['mayring', 'thematic'],
+          genesis: true
         }
       },
       pro: {
-        features: ['basic-analysis', 'akih', 'personas', 'genesis'],
+        // EVIDENRA Pro 1.0 hat: Basic + 7 Personas, mehr Methodologien
+        features: ['basic-analysis', 'akih', 'genesis', 'personas', 'advanced-methodologies'],
         limits: {
-          maxDocuments: 50,
-          maxAnalysesPerDay: 200,
-          personas: ['orthodox', 'hermeneutic', 'critical', 'phenomenological', 'feminist'],
-          methodologies: ['mayring', 'thematic', 'grounded-theory', 'discourse']
+          maxDocuments: 100,
+          maxAnalysesPerDay: 500,
+          personas: ['orthodox', 'hermeneutic', 'critical', 'phenomenological', 'feminist', 'pragmatist', 'deconstructionist'],  // 7 Personas
+          methodologies: ['mayring', 'thematic', 'grounded-theory', 'discourse'],
+          genesis: true
         }
       },
       ultimate: {
-        features: ['basic-analysis', 'akih', 'personas', 'genesis', 'advanced-methodologies', 'team-collaboration'],
+        // EVIDENRA Ultimate 1.0 hat: alles + Team + Quantum
+        features: ['basic-analysis', 'akih', 'genesis', 'personas', 'advanced-methodologies', 'team-collaboration', 'quantum-coding'],
         limits: {
           maxDocuments: -1,
           maxAnalysesPerDay: -1,
           personas: 'all',
-          methodologies: 'all'
+          methodologies: 'all',
+          genesis: true
         }
       }
     };
