@@ -15,6 +15,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { validateSupabaseJWT } from './auth/supabase-jwt-validator.js';
 import { analyzeRoutes } from './api/routes.js';
+import { analysisRoutes } from './api/analysis-routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -22,15 +23,38 @@ const PORT = process.env.PORT || 3001;
 // Security Middleware
 app.use(helmet());
 app.use(cors({
-  origin: [
-    'https://evidenra.app',
-    'https://basic.evidenra.com',
-    'https://pro.evidenra.com',
-    'https://ultimate.evidenra.com',
-    // Lokale Entwicklung
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ],
+  origin: (origin, callback) => {
+    // Allowed origins
+    const allowedOrigins = [
+      'https://evidenra.app',
+      'https://basic.evidenra.com',
+      'https://pro.evidenra.com',
+      'https://ultimate.evidenra.com',
+      // Lokale Entwicklung
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:5175'
+    ];
+
+    // Allow requests with no origin (Electron apps, mobile apps, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // Allow file:// and app:// protocols (Electron)
+    if (origin.startsWith('file://') || origin.startsWith('app://')) {
+      return callback(null, true);
+    }
+
+    // Allow explicitly listed origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Block all others
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -49,6 +73,7 @@ app.use('/api', validateSupabaseJWT);
 
 // Geschützte API Routes
 app.use('/api', analyzeRoutes);
+app.use('/api', analysisRoutes);
 
 // Error Handler
 app.use((err, req, res, next) => {

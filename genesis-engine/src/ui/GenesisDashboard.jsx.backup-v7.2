@@ -1,0 +1,295 @@
+/**
+ * ═══════════════════════════════════════════════════════════
+ * 🎮 GENESIS DASHBOARD
+ * React UI für Evolution Monitoring
+ * ═══════════════════════════════════════════════════════════
+ */
+
+import React, { useState, useEffect } from 'react';
+import { GAPESAnalytics } from './GAPESAnalytics.jsx';
+
+/**
+ * Format gene category/type for better readability
+ */
+const formatGeneCategory = (category, operation) => {
+  const categoryMap = {
+    'omniscience_query': '🔮 Omniscience Query',
+    'ultimate_report_section': '📊 ULTIMATE Report Section',
+    'basis_report': '📋 BASIS Methodology Report',
+    'scientific_article': '📄 Scientific Article',
+    'coding_operation': '🏷️ AI Category Generation',
+    'meta_intelligence': '🧠 Meta-Intelligence',
+    'enhanced_report': '✨ Enhanced Report',
+    'methodology_documentation': '📚 Methodology Documentation'
+  };
+
+  // Try to get mapped category name
+  let displayName = categoryMap[category] || category;
+
+  // Add operation details if available
+  if (operation) {
+    const operationMap = {
+      'meta_stage1_self_assessment': 'Stage 1: Self-Assessment',
+      'meta_stage2_prompt_generation': 'Stage 2: Prompt Generation',
+      'meta_stage3_report_generation': 'Stage 3: Report Generation',
+      'ai_category_generation': 'AI-Powered Categorization',
+      'generate_enhanced_article': 'Enhanced Article Generation'
+    };
+
+    if (operationMap[operation]) {
+      displayName += ` - ${operationMap[operation]}`;
+    }
+  }
+
+  return displayName;
+};
+
+export const GenesisDashboard = ({ genesisEngine, genesisAPIWrapper }) => {
+  const [stats, setStats] = useState(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [bestGenes, setBestGenes] = useState([]);
+  const [recentEvents, setRecentEvents] = useState([]);
+
+  useEffect(() => {
+    if (!genesisEngine) return;
+
+    // Update stats periodically
+    const interval = setInterval(() => {
+      const currentStats = genesisEngine.getStats();
+      setStats(currentStats);
+      setIsRunning(currentStats.isRunning);
+
+      const best = genesisEngine.getBestGenes(5);
+      setBestGenes(best);
+    }, 1000);
+
+    // Event listeners
+    genesisEngine.on('onEvolution', (data) => {
+      addEvent('Evolution', `Generation ${data.generation}: ${data.survivors} survivors, ${data.offspring} offspring`);
+    });
+
+    genesisEngine.on('onEmergence', (data) => {
+      addEvent('Emergence', `New behavior detected in generation ${data.generation}!`, 'success');
+    });
+
+    genesisEngine.on('onExtinction', (data) => {
+      addEvent('Extinction', `${data.count} genes went extinct`, 'warning');
+    });
+
+    genesisEngine.on('onBreakthrough', (data) => {
+      addEvent('Breakthrough', `Self-improvement achieved!`, 'success');
+    });
+
+    return () => clearInterval(interval);
+  }, [genesisEngine]);
+
+  const addEvent = (type, message, severity = 'info') => {
+    setRecentEvents(prev => [
+      { type, message, severity, timestamp: Date.now() },
+      ...prev.slice(0, 9)
+    ]);
+  };
+
+  const handleStart = async () => {
+    await genesisEngine.start();
+    setIsRunning(true);
+  };
+
+  const handleStop = () => {
+    genesisEngine.stop();
+    setIsRunning(false);
+  };
+
+  const handleReset = async () => {
+    if (window.confirm('Reset all evolution data? This cannot be undone.')) {
+      genesisEngine.stop();
+      await genesisEngine.persistence.clearAll();
+      window.location.reload();
+    }
+  };
+
+  if (!stats) {
+    return (
+      <div className="genesis-dashboard loading">
+        <div className="spinner"></div>
+        <p>Initializing Genesis...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="genesis-dashboard">
+      {/* Header */}
+      <div className="genesis-header">
+        <h1>🧬 GENESIS Engine</h1>
+        <div className="status-badge" data-running={isRunning}>
+          {isRunning ? '🟢 ACTIVE' : '⚪ IDLE'}
+        </div>
+      </div>
+
+      {/* Main Controls */}
+      <div className="genesis-controls">
+        {!isRunning ? (
+          <button onClick={handleStart} className="btn-primary btn-large">
+            🚀 START EVOLUTION
+          </button>
+        ) : (
+          <button onClick={handleStop} className="btn-danger btn-large">
+            ⏸️ STOP
+          </button>
+        )}
+        <button
+          onClick={handleReset}
+          className="btn-secondary"
+          title="⚠️ RESET EVOLUTION DATA&#10;&#10;WAS WIRD GELÖSCHT:&#10;✗ Alle gelernten Gene & Fitness-Daten&#10;✗ Evolution History & Statistiken&#10;✗ GAPES Analytics & Consciousness Metrics&#10;&#10;WAS BLEIBT ERHALTEN:&#10;✓ GAPES Templates & Code&#10;✓ Ihre Projekte & Dokumente&#10;✓ API-Einstellungen&#10;&#10;WANN DRÜCKEN:&#10;• Nur bei korrupten Daten oder Testing&#10;• System startet Learning von vorne (Fitness 0.50)&#10;• NICHT für normale Nutzung empfohlen!"
+        >
+          🔄 RESET
+        </button>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-label">Generation</div>
+          <div className="stat-value">{stats.generation}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">Total Genes</div>
+          <div className="stat-value">{stats.totalGenes}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">Mutations</div>
+          <div className="stat-value">{stats.totalMutations}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">Crossovers</div>
+          <div className="stat-value">{stats.totalCrossovers}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">Extinctions</div>
+          <div className="stat-value">{stats.extinctions}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">Emergent Behaviors</div>
+          <div className="stat-value">{stats.emergentBehaviors}</div>
+        </div>
+      </div>
+
+      {/* Consciousness Panel */}
+      <div className="consciousness-panel">
+        <h2>🧠 Consciousness Metrics</h2>
+        <div className="consciousness-bars">
+          <ConsciousnessBar 
+            label="Self-Awareness" 
+            value={stats.consciousness.selfAwareness}
+            color="#3b82f6"
+          />
+          <ConsciousnessBar 
+            label="Learning Rate" 
+            value={stats.consciousness.learningRate / 2}
+            color="#10b981"
+          />
+          <ConsciousnessBar 
+            label="Creativity" 
+            value={stats.consciousness.creativityIndex}
+            color="#8b5cf6"
+          />
+          <ConsciousnessBar 
+            label="Intuition" 
+            value={stats.consciousness.intuitionLevel}
+            color="#f59e0b"
+          />
+          <ConsciousnessBar 
+            label="Wisdom" 
+            value={stats.consciousness.wisdomScore}
+            color="#ec4899"
+          />
+        </div>
+        <div className="experience-badge">
+          ⭐ {stats.consciousness.experiencePoints} XP
+        </div>
+      </div>
+
+      {/* Best Genes */}
+      <div className="best-genes-panel">
+        <h2>🏆 Top Performing Genes</h2>
+        <div className="genes-list">
+          {bestGenes.map((gene, index) => (
+            <div key={gene.id} className="gene-card" data-rank={index + 1}>
+              <div className="gene-rank">#{index + 1}</div>
+              <div className="gene-info">
+                <div className="gene-category">{formatGeneCategory(gene.category || gene.type, gene.operation)}</div>
+                {gene.content && (
+                  <div className="gene-content">{gene.content.substring(0, 80)}...</div>
+                )}
+                <div className="gene-id" style={{ fontSize: '0.7rem', opacity: 0.5, marginTop: '0.25rem' }}>
+                  ID: {gene.id.substring(0, 12)}...
+                </div>
+              </div>
+              <div className="gene-fitness">
+                <div className="fitness-bar" style={{ width: `${gene.fitness * 100}%` }}></div>
+                <span>{(gene.fitness * 100).toFixed(1)}%</span>
+              </div>
+              {gene.generation > 0 && (
+                <div className="gene-generation">Gen {gene.generation}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Event Log */}
+      <div className="event-log-panel">
+        <h2>📋 Recent Events</h2>
+        <div className="event-log">
+          {recentEvents.map((event, index) => (
+            <div key={index} className={`event-item event-${event.severity}`}>
+              <span className="event-type">{event.type}</span>
+              <span className="event-message">{event.message}</span>
+              <span className="event-time">
+                {new Date(event.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+          ))}
+          {recentEvents.length === 0 && (
+            <div className="no-events">No events yet. Start evolution to see activity.</div>
+          )}
+        </div>
+      </div>
+
+      {/* 🧬 V7.1: Integrated GAPES Analytics */}
+      {genesisAPIWrapper && (
+        <div className="mt-6">
+          <GAPESAnalytics genesisAPIWrapper={genesisAPIWrapper} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ConsciousnessBar = ({ label, value, color }) => {
+  const percentage = Math.min(100, value * 100);
+
+  return (
+    <div className="consciousness-bar">
+      <div className="bar-label">{label}</div>
+      <div className="bar-container">
+        <div 
+          className="bar-fill" 
+          style={{ 
+            width: `${percentage}%`,
+            backgroundColor: color
+          }}
+        ></div>
+      </div>
+      <div className="bar-value">{percentage.toFixed(1)}%</div>
+    </div>
+  );
+};
+
+export default GenesisDashboard;
