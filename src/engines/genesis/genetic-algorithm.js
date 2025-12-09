@@ -272,4 +272,32 @@ die Vorteile: "Die Motivation der Schüler ist gestiegen, besonders bei
 den sonst eher zurückhaltenden Kindern."`;
 }
 
-export default { evolvePrompt };
+// Exportiere Genesis Konfiguration für neue Architektur
+export const GENESIS_CONFIG = {
+  defaultParameters: {
+    generations: 10,
+    populationSize: 20,
+    mutationRate: 0.1,
+    crossoverRate: 0.7,
+    elitePercentage: 0.1
+  },
+  mutationOperators: [
+    { name: 'add_structure', description: 'Füge mehr Struktur hinzu' },
+    { name: 'emphasize_rigor', description: 'Betone methodische Strenge' },
+    { name: 'require_reasoning', description: 'Fordere mehr Begründungen' },
+    { name: 'add_examples', description: 'Verlange konkrete Beispiele' },
+    { name: 'add_quality_criteria', description: 'Füge Qualitätskriterien hinzu' },
+    { name: 'simplify', description: 'Vereinfache die Anweisungen' },
+    { name: 'add_steps', description: 'Füge Schritt-für-Schritt Anleitung hinzu' }
+  ],
+  fitnessMetrics: {
+    structure: { weight: 0.2, description: 'Strukturiertheit (JSON/Listen)' },
+    codings: { weight: 0.2, description: 'Anzahl gefundener Kodierungen' },
+    reasoning: { weight: 0.2, description: 'Begründungen vorhanden' },
+    methodology: { weight: 0.2, description: 'Methodologische Begriffe' },
+    length: { weight: 0.2, description: 'Optimale Antwortlänge' }
+  },
+  testText: getTestText()
+};
+
+export default { evolvePrompt, GENESIS_CONFIG };

@@ -220,4 +220,12 @@ function parseGTResponse(responseText) {
   };
 }
 
-export default { analyzeWithGroundedTheory };
+// Exportiere geschützte Prompts für neue Architektur
+export const GROUNDED_THEORY_PROMPTS = {
+  systemPrompt: buildGTSystemPrompt(),
+  openCodingTemplate: buildGTAnalysisPrompt('{{text}}', { codingLevel: 'open', existingCodes: [], theoreticalSensitivity: true }),
+  axialCodingTemplate: buildGTAnalysisPrompt('{{text}}', { codingLevel: 'axial', existingCodes: [], theoreticalSensitivity: true }),
+  selectiveCodingTemplate: buildGTAnalysisPrompt('{{text}}', { codingLevel: 'selective', existingCodes: [], theoreticalSensitivity: true })
+};
+
+export default { analyzeWithGroundedTheory, GROUNDED_THEORY_PROMPTS };

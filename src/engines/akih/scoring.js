@@ -186,4 +186,33 @@ function generateRecommendations(dimensions) {
   return recommendations;
 }
 
-export default { calculateAKIHScore };
+// Exportiere Dimensionen für neue Architektur
+export const AKIH_DIMENSIONS = {
+  accuracy: {
+    name: 'Genauigkeit',
+    description: 'Wie gut decken die Codings den Text ab?',
+    weight: 0.25
+  },
+  consistency: {
+    name: 'Konsistenz',
+    description: 'Sind ähnliche Textstellen gleich codiert?',
+    weight: 0.20
+  },
+  interpretiveDepth: {
+    name: 'Interpretationstiefe',
+    description: 'Wie tiefgehend sind die Analysen?',
+    weight: 0.25
+  },
+  methodologicalRigor: {
+    name: 'Methodologische Strenge',
+    description: 'Werden methodische Standards eingehalten?',
+    weight: 0.20
+  },
+  transparency: {
+    name: 'Transparenz',
+    description: 'Ist der Analyseprozess nachvollziehbar?',
+    weight: 0.10
+  }
+};
+
+export default { calculateAKIHScore, AKIH_DIMENSIONS };

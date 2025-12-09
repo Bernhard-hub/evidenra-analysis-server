@@ -1,235 +1,249 @@
 /**
  * API Routes für EVIDENRA Analyse Server
  *
- * Alle geschützten Analyse-Endpoints
+ * GESCHÜTZTE PROMPTS & LOGIK
  *
- * WICHTIG: User sendet eigenen API Key im Header 'X-API-Key'
- * Der Server nutzt diesen Key für Claude-Aufrufe
+ * Der Server liefert nur die geschützten Prompts/Algorithmen.
+ * Die App führt die KI-Aufrufe selbst durch (lokal oder Cloud mit User's Key).
+ *
+ * Architektur:
+ * 1. App → Server: "Gib mir Mayring-Prompt"
+ * 2. Server → App: Geschützter System-Prompt + User-Prompt Template
+ * 3. App → Claude/Ollama: Führt Analyse mit eigenem Key durch
+ * 4. App → Server: Ergebnisse zur AKIH-Bewertung senden
  */
 
 import { Router } from 'express';
 import { requireFeature } from '../auth/supabase-jwt-validator.js';
 
-// Engine Imports (GESCHÜTZT - nicht im Client sichtbar!)
-import { analyzeWithMayring } from '../engines/methodologies/mayring.js';
-import { analyzeWithGroundedTheory } from '../engines/methodologies/grounded-theory.js';
-import { calculateAKIHScore } from '../engines/akih/scoring.js';
-import { evolvePrompt } from '../engines/genesis/genetic-algorithm.js';
-import { analyzeWithPersonas } from '../engines/personas/index.js';
+// Geschützte Prompts (NICHT im Client sichtbar!)
+import { MAYRING_SYSTEM_PROMPT, MAYRING_USER_PROMPT_TEMPLATE } from '../engines/methodologies/mayring.js';
+import { GROUNDED_THEORY_PROMPTS } from '../engines/methodologies/grounded-theory.js';
+import { calculateAKIHScore, AKIH_DIMENSIONS } from '../engines/akih/scoring.js';
+import { GENESIS_CONFIG } from '../engines/genesis/genetic-algorithm.js';
+import { PERSONA_PROMPTS } from '../engines/personas/index.js';
 
 const router = Router();
 
-/**
- * Middleware: Extrahiert User's API Key
- */
-function extractApiKey(req, res, next) {
-  const apiKey = req.headers['x-api-key'];
-
-  if (!apiKey) {
-    return res.status(400).json({
-      error: 'API Key Required',
-      message: 'Please provide your Anthropic API key in the X-API-Key header'
-    });
-  }
-
-  if (!apiKey.startsWith('sk-ant-')) {
-    return res.status(400).json({
-      error: 'Invalid API Key',
-      message: 'API key must start with sk-ant-'
-    });
-  }
-
-  req.apiKey = apiKey;
-  next();
-}
+// ============================================
+// PROMPT ENDPOINTS - Liefern geschützte Prompts
+// ============================================
 
 /**
- * POST /api/analyze
- * Hauptanalyse-Endpoint
+ * GET /api/prompts/methodology/:name
+ * Gibt geschützten Methodologie-Prompt zurück
  */
-router.post('/analyze', extractApiKey, async (req, res) => {
+router.get('/prompts/methodology/:name', (req, res) => {
+  const { name } = req.params;
+  const { approach, categories } = req.query;
+
   try {
-    const { text, methodology, personas, options } = req.body;
+    let prompts;
 
-    if (!text || text.length < 10) {
-      return res.status(400).json({
-        error: 'Invalid Input',
-        message: 'Text must be at least 10 characters'
-      });
-    }
-
-    // Methodologie-Analyse mit User's API Key
-    let analysisResult;
-    switch (methodology) {
+    switch (name) {
       case 'mayring':
-        analysisResult = await analyzeWithMayring(text, options, req.apiKey);
+        prompts = {
+          systemPrompt: MAYRING_SYSTEM_PROMPT,
+          userPromptTemplate: MAYRING_USER_PROMPT_TEMPLATE,
+          approach: approach || 'structuring',
+          outputFormat: {
+            type: 'json',
+            schema: {
+              codings: [{ text: 'string', category: 'string', reasoning: 'string' }],
+              categories: [{ name: 'string', definition: 'string', anchorExample: 'string' }]
+            }
+          }
+        };
         break;
+
       case 'grounded-theory':
-        analysisResult = await analyzeWithGroundedTheory(text, options, req.apiKey);
+        prompts = GROUNDED_THEORY_PROMPTS;
         break;
+
+      case 'thematic':
+        prompts = {
+          systemPrompt: MAYRING_SYSTEM_PROMPT, // Ähnlich zu Mayring
+          userPromptTemplate: MAYRING_USER_PROMPT_TEMPLATE,
+          approach: 'thematic'
+        };
+        break;
+
       default:
-        analysisResult = await analyzeWithMayring(text, options, req.apiKey);
-    }
-
-    // Persona-Analyse (falls angefordert)
-    let personaInsights = null;
-    if (personas && personas.length > 0) {
-      personaInsights = await analyzeWithPersonas(text, personas, req.apiKey);
-    }
-
-    // AKIH Score berechnen (falls Feature verfügbar)
-    let akihScore = null;
-    if (req.user.features.akih) {
-      akihScore = await calculateAKIHScore(analysisResult, text);
+        return res.status(404).json({
+          error: 'Unknown Methodology',
+          message: `Methodology '${name}' not found`,
+          available: ['mayring', 'grounded-theory', 'thematic']
+        });
     }
 
     res.json({
       success: true,
-      codings: analysisResult.codings,
-      categories: analysisResult.categories,
-      akihScore,
-      personaInsights,
-      methodology,
+      methodology: name,
+      prompts,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Analysis Error:', error);
-    res.status(500).json({
-      error: 'Analysis Failed',
-      message: 'Unable to complete analysis'
-    });
+    console.error('Prompt Retrieval Error:', error);
+    res.status(500).json({ error: 'Failed to retrieve prompts' });
   }
 });
 
 /**
- * POST /api/score
- * AKIH Score Berechnung
+ * GET /api/prompts/personas
+ * Gibt verfügbare Persona-Prompts zurück (basierend auf Subscription)
  */
-router.post('/score', extractApiKey, requireFeature('akih'), async (req, res) => {
+router.get('/prompts/personas', (req, res) => {
   try {
-    const { codings, text, methodology } = req.body;
+    const allowedPersonas = req.user?.features?.personas || ['orthodox'];
 
-    const score = await calculateAKIHScore({ codings }, text, methodology);
+    // Filtere Personas basierend auf Subscription
+    const availablePersonas = {};
+
+    if (allowedPersonas === 'all') {
+      Object.assign(availablePersonas, PERSONA_PROMPTS);
+    } else {
+      for (const key of allowedPersonas) {
+        if (PERSONA_PROMPTS[key]) {
+          availablePersonas[key] = PERSONA_PROMPTS[key];
+        }
+      }
+    }
 
     res.json({
       success: true,
-      score,
-      dimensions: score.dimensions,
-      recommendations: score.recommendations
+      personas: availablePersonas,
+      available: Object.keys(availablePersonas),
+      subscription: req.user?.subscription || 'free'
     });
 
   } catch (error) {
-    console.error('Scoring Error:', error);
-    res.status(500).json({
-      error: 'Scoring Failed'
-    });
+    console.error('Persona Prompts Error:', error);
+    res.status(500).json({ error: 'Failed to retrieve persona prompts' });
   }
 });
 
 /**
- * POST /api/generate-categories
- * Automatische Kategorien-Generierung
+ * GET /api/prompts/genesis
+ * Gibt Genesis Engine Konfiguration zurück (nur Pro/Ultimate)
  */
-router.post('/generate-categories', extractApiKey, async (req, res) => {
+router.get('/prompts/genesis', requireFeature('genesis'), (req, res) => {
   try {
-    const { codings, methodology, existingCategories } = req.body;
-
-    // Kategorie-Generierung basierend auf Methodologie
-    const categories = await generateCategories(codings, {
-      methodology,
-      existing: existingCategories
-    });
-
     res.json({
       success: true,
-      categories,
-      suggestions: categories.suggestions
+      config: GENESIS_CONFIG,
+      mutationOperators: GENESIS_CONFIG.mutationOperators,
+      fitnessMetrics: GENESIS_CONFIG.fitnessMetrics
     });
 
   } catch (error) {
-    console.error('Category Generation Error:', error);
-    res.status(500).json({
-      error: 'Category Generation Failed'
-    });
+    console.error('Genesis Config Error:', error);
+    res.status(500).json({ error: 'Failed to retrieve Genesis config' });
   }
 });
 
-/**
- * POST /api/genesis/evolve
- * Genesis Engine - Prompt Evolution
- */
-router.post('/genesis/evolve', extractApiKey, requireFeature('genesis'), async (req, res) => {
-  try {
-    const { prompt, fitness, generations, populationSize } = req.body;
-
-    const evolved = await evolvePrompt({
-      basePrompt: prompt,
-      fitnessFunction: fitness,
-      generations: generations || 10,
-      populationSize: populationSize || 20
-    });
-
-    res.json({
-      success: true,
-      evolvedPrompt: evolved.best,
-      fitness: evolved.fitness,
-      generations: evolved.generationsRun,
-      improvements: evolved.improvements
-    });
-
-  } catch (error) {
-    console.error('Genesis Evolution Error:', error);
-    res.status(500).json({
-      error: 'Evolution Failed'
-    });
-  }
-});
+// ============================================
+// SCORING ENDPOINTS - Verarbeiten Ergebnisse
+// ============================================
 
 /**
- * POST /api/personas/analyze
- * Multi-Persona Analyse
+ * POST /api/score/akih
+ * Berechnet AKIH Score aus Client-Ergebnissen
+ * Client sendet Codings, Server berechnet Score
  */
-router.post('/personas/analyze', extractApiKey, async (req, res) => {
+router.post('/score/akih', requireFeature('akih'), async (req, res) => {
   try {
-    const { text, personas } = req.body;
+    const { codings, text, methodology, categories } = req.body;
 
-    // Prüfe ob User Zugriff auf angeforderte Personas hat
-    const allowedPersonas = req.user.features.personas;
-    const requestedPersonas = personas.filter(p =>
-      allowedPersonas === 'all' || allowedPersonas.includes(p)
-    );
-
-    if (requestedPersonas.length === 0) {
-      return res.status(403).json({
-        error: 'No Personas Available',
-        message: 'Upgrade your subscription for more personas'
+    if (!codings || !Array.isArray(codings)) {
+      return res.status(400).json({
+        error: 'Invalid Input',
+        message: 'Codings array is required'
       });
     }
 
-    const insights = await analyzeWithPersonas(text, requestedPersonas, req.apiKey);
+    // AKIH Score Berechnung (serverseitig - Algorithmus geschützt)
+    const score = calculateAKIHScore({
+      codings,
+      text,
+      methodology,
+      categories
+    });
 
     res.json({
       success: true,
-      insights,
-      personasUsed: requestedPersonas
+      score: score.overall,
+      level: score.level,
+      dimensions: score.dimensions,
+      recommendations: score.recommendations,
+      details: score.details
     });
 
   } catch (error) {
-    console.error('Persona Analysis Error:', error);
-    res.status(500).json({
-      error: 'Persona Analysis Failed'
-    });
+    console.error('AKIH Scoring Error:', error);
+    res.status(500).json({ error: 'Scoring calculation failed' });
   }
 });
 
-// Hilfsfunktion für Kategorie-Generierung
-async function generateCategories(codings, options) {
-  // TODO: Implementierung der KI-gestützten Kategorien-Generierung
-  return {
-    categories: [],
-    suggestions: []
-  };
-}
+/**
+ * GET /api/score/akih/dimensions
+ * Gibt AKIH Dimensionen und Gewichtungen zurück
+ */
+router.get('/score/akih/dimensions', requireFeature('akih'), (req, res) => {
+  res.json({
+    success: true,
+    dimensions: AKIH_DIMENSIONS,
+    levels: {
+      novice: { min: 0, max: 39, description: 'Anfänger-Niveau' },
+      developing: { min: 40, max: 59, description: 'Entwicklungs-Niveau' },
+      proficient: { min: 60, max: 79, description: 'Kompetenz-Niveau' },
+      expert: { min: 80, max: 100, description: 'Experten-Niveau' }
+    }
+  });
+});
+
+// ============================================
+// FEATURE INFO ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/features
+ * Gibt verfügbare Features basierend auf Subscription zurück
+ */
+router.get('/features', (req, res) => {
+  res.json({
+    success: true,
+    subscription: req.user?.subscription || 'free',
+    features: req.user?.features || {
+      maxDocuments: 3,
+      maxAnalysesPerDay: 5,
+      personas: ['orthodox'],
+      methodologies: ['basic'],
+      genesis: false,
+      akih: false
+    }
+  });
+});
+
+/**
+ * GET /api/personas/list
+ * Gibt Liste aller Personas mit Beschreibungen zurück
+ */
+router.get('/personas/list', (req, res) => {
+  const allowedPersonas = req.user?.features?.personas || ['orthodox'];
+
+  const personaList = Object.entries(PERSONA_PROMPTS).map(([key, persona]) => ({
+    key,
+    name: persona.name,
+    description: persona.description,
+    available: allowedPersonas === 'all' || allowedPersonas.includes(key)
+  }));
+
+  res.json({
+    success: true,
+    personas: personaList,
+    subscription: req.user?.subscription || 'free'
+  });
+});
 
 export { router as analyzeRoutes };

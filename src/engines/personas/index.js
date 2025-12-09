@@ -282,4 +282,41 @@ export function getAvailablePersonas() {
   }));
 }
 
-export default { analyzeWithPersonas, getAvailablePersonas };
+// Exportiere Persona-Prompts für neue Architektur
+export const PERSONA_PROMPTS = Object.fromEntries(
+  Object.entries(PERSONAS).map(([key, persona]) => [
+    key,
+    {
+      name: persona.name,
+      description: persona.description,
+      systemPrompt: persona.systemPrompt,
+      userPromptTemplate: `Analysiere den folgenden Text aus deiner spezifischen Perspektive.
+
+TEXT:
+---
+{{text}}
+---
+
+AUFGABEN:
+1. Identifiziere die wichtigsten Aspekte aus deiner Perspektive
+2. Benenne Stärken und Schwächen der Aussagen
+3. Formuliere kritische Fragen
+4. Gib Empfehlungen für vertiefende Analyse
+
+AUSGABEFORMAT (JSON):
+{
+  "keyInsights": ["Einsicht1", "Einsicht2"],
+  "strengths": ["Stärke1"],
+  "weaknesses": ["Schwäche1"],
+  "criticalQuestions": ["Frage1", "Frage2"],
+  "recommendations": ["Empfehlung1"],
+  "overallAssessment": "Kurze Gesamteinschätzung"
+}
+
+Antworte NUR mit dem JSON.`
+    }
+  ])
+);
+
+export { PERSONAS };
+export default { analyzeWithPersonas, getAvailablePersonas, PERSONA_PROMPTS, PERSONAS };

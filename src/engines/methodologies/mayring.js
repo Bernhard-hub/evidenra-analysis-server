@@ -200,4 +200,50 @@ function parseAnalysisResponse(responseText) {
   };
 }
 
-export default { analyzeWithMayring };
+// Exportiere die geschützten Prompts für die neue Architektur
+export const MAYRING_SYSTEM_PROMPT = buildMayringSystemPrompt('structuring');
+export const MAYRING_USER_PROMPT_TEMPLATE = `Analysiere den folgenden Text nach der inhaltlich strukturierenden qualitativen Inhaltsanalyse nach Mayring.
+
+ANALYSEEINHEIT: {{unitOfAnalysis}}
+
+{{#if categories}}
+VORGEGEBENE KATEGORIEN (deduktiv):
+{{#each categories}}
+- {{name}}: {{definition}}
+{{/each}}
+{{else}}
+KATEGORIENBILDUNG: Induktiv aus dem Material entwickeln
+{{/if}}
+
+TEXT ZUR ANALYSE:
+---
+{{text}}
+---
+
+AUSGABEFORMAT (JSON):
+{
+  "codings": [
+    {
+      "id": "C1",
+      "text": "Exakte Textstelle",
+      "category": "Kategoriename",
+      "subcategory": "Optional: Unterkategorie",
+      "reasoning": "Begründung für diese Zuordnung",
+      "confidence": 0.0-1.0
+    }
+  ],
+  "categories": [
+    {
+      "name": "Kategoriename",
+      "definition": "Präzise Definition",
+      "anchorExample": "Prototypisches Beispiel aus dem Text",
+      "codingRule": "Wann wird diese Kategorie angewendet?"
+    }
+  ],
+  "summary": "Zusammenfassung der Hauptergebnisse",
+  "memos": ["Analytische Notizen und Reflexionen"]
+}
+
+Antworte NUR mit dem JSON, keine zusätzlichen Erklärungen.`;
+
+export default { analyzeWithMayring, MAYRING_SYSTEM_PROMPT, MAYRING_USER_PROMPT_TEMPLATE };
