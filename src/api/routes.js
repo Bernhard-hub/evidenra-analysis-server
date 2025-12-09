@@ -2,6 +2,9 @@
  * API Routes für EVIDENRA Analyse Server
  *
  * Alle geschützten Analyse-Endpoints
+ *
+ * WICHTIG: User sendet eigenen API Key im Header 'X-API-Key'
+ * Der Server nutzt diesen Key für Claude-Aufrufe
  */
 
 import { Router } from 'express';
@@ -17,10 +20,34 @@ import { analyzeWithPersonas } from '../engines/personas/index.js';
 const router = Router();
 
 /**
+ * Middleware: Extrahiert User's API Key
+ */
+function extractApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
+
+  if (!apiKey) {
+    return res.status(400).json({
+      error: 'API Key Required',
+      message: 'Please provide your Anthropic API key in the X-API-Key header'
+    });
+  }
+
+  if (!apiKey.startsWith('sk-ant-')) {
+    return res.status(400).json({
+      error: 'Invalid API Key',
+      message: 'API key must start with sk-ant-'
+    });
+  }
+
+  req.apiKey = apiKey;
+  next();
+}
+
+/**
  * POST /api/analyze
  * Hauptanalyse-Endpoint
  */
-router.post('/analyze', async (req, res) => {
+router.post('/analyze', extractApiKey, async (req, res) => {
   try {
     const { text, methodology, personas, options } = req.body;
 
@@ -31,23 +58,23 @@ router.post('/analyze', async (req, res) => {
       });
     }
 
-    // Methodologie-Analyse
+    // Methodologie-Analyse mit User's API Key
     let analysisResult;
     switch (methodology) {
       case 'mayring':
-        analysisResult = await analyzeWithMayring(text, options);
+        analysisResult = await analyzeWithMayring(text, options, req.apiKey);
         break;
       case 'grounded-theory':
-        analysisResult = await analyzeWithGroundedTheory(text, options);
+        analysisResult = await analyzeWithGroundedTheory(text, options, req.apiKey);
         break;
       default:
-        analysisResult = await analyzeWithMayring(text, options);
+        analysisResult = await analyzeWithMayring(text, options, req.apiKey);
     }
 
     // Persona-Analyse (falls angefordert)
     let personaInsights = null;
     if (personas && personas.length > 0) {
-      personaInsights = await analyzeWithPersonas(text, personas);
+      personaInsights = await analyzeWithPersonas(text, personas, req.apiKey);
     }
 
     // AKIH Score berechnen (falls Feature verfügbar)
@@ -79,7 +106,7 @@ router.post('/analyze', async (req, res) => {
  * POST /api/score
  * AKIH Score Berechnung
  */
-router.post('/score', requireFeature('akih'), async (req, res) => {
+router.post('/score', extractApiKey, requireFeature('akih'), async (req, res) => {
   try {
     const { codings, text, methodology } = req.body;
 
@@ -104,7 +131,7 @@ router.post('/score', requireFeature('akih'), async (req, res) => {
  * POST /api/generate-categories
  * Automatische Kategorien-Generierung
  */
-router.post('/generate-categories', async (req, res) => {
+router.post('/generate-categories', extractApiKey, async (req, res) => {
   try {
     const { codings, methodology, existingCategories } = req.body;
 
@@ -132,7 +159,7 @@ router.post('/generate-categories', async (req, res) => {
  * POST /api/genesis/evolve
  * Genesis Engine - Prompt Evolution
  */
-router.post('/genesis/evolve', requireFeature('genesis'), async (req, res) => {
+router.post('/genesis/evolve', extractApiKey, requireFeature('genesis'), async (req, res) => {
   try {
     const { prompt, fitness, generations, populationSize } = req.body;
 
@@ -163,7 +190,7 @@ router.post('/genesis/evolve', requireFeature('genesis'), async (req, res) => {
  * POST /api/personas/analyze
  * Multi-Persona Analyse
  */
-router.post('/personas/analyze', async (req, res) => {
+router.post('/personas/analyze', extractApiKey, async (req, res) => {
   try {
     const { text, personas } = req.body;
 
@@ -180,7 +207,7 @@ router.post('/personas/analyze', async (req, res) => {
       });
     }
 
-    const insights = await analyzeWithPersonas(text, requestedPersonas);
+    const insights = await analyzeWithPersonas(text, requestedPersonas, req.apiKey);
 
     res.json({
       success: true,
