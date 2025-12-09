@@ -1,8 +1,13 @@
 /**
- * EVIDENRA API Client
+ * EVIDENRA Client SDK - Prompt-Only Architecture
  *
- * Gemeinsamer Client für Basic, Pro, Ultimate und PWA
- * Kommuniziert mit dem geschützten Railway Analyse-Server
+ * Der Server liefert NUR geschützte Prompts.
+ * Die App führt KI-Aufrufe selbst durch (mit AIBridge/eigenem API Key).
+ *
+ * Flow:
+ * 1. App holt Prompts vom Server (authentifiziert mit Supabase JWT)
+ * 2. App führt KI-Analyse lokal durch (Ollama) oder Cloud (Claude mit eigenem Key)
+ * 3. App sendet Ergebnisse zur AKIH-Bewertung an Server
  */
 
 export interface EvidenraClientConfig {
@@ -13,74 +18,36 @@ export interface EvidenraClientConfig {
   onAuthError?: () => void;
 }
 
-export interface AnalyzeRequest {
-  text: string;
-  methodology?: 'mayring' | 'grounded-theory' | 'thematic' | 'discourse';
-  personas?: string[];
-  options?: {
-    approach?: 'structuring' | 'summarizing' | 'explicating';
-    categories?: Array<{ name: string; definition?: string }>;
-    unitOfAnalysis?: 'sentence' | 'paragraph' | 'meaning-unit';
-    anchorExamples?: boolean;
+export interface MethodologyPrompts {
+  systemPrompt: string;
+  userPromptTemplate: string;
+  approach?: string;
+  outputFormat?: {
+    type: string;
+    schema: any;
   };
 }
 
-export interface AnalyzeResponse {
-  success: boolean;
-  codings: Array<{
-    id: string;
-    text: string;
-    category: string;
-    subcategory?: string;
-    reasoning?: string;
-    confidence: number;
-  }>;
-  categories: Array<{
-    name: string;
-    definition?: string;
-    anchorExample?: string;
-    codingRule?: string;
-  }>;
-  akihScore?: {
-    overall: number;
-    dimensions: Record<string, number>;
-    level: string;
-    recommendations: Array<{
-      dimension: string;
-      priority: string;
-      message: string;
-    }>;
-  };
-  personaInsights?: {
-    individualAnalyses: any[];
-    synthesis: any;
-    personasUsed: string[];
-  };
-  methodology: string;
-  timestamp: string;
+export interface PersonaPrompt {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  userPromptTemplate: string;
 }
 
-export interface GenesisEvolveRequest {
-  prompt: string;
-  fitness?: 'quality' | 'speed' | 'accuracy';
-  generations?: number;
-  populationSize?: number;
-}
-
-export interface GenesisEvolveResponse {
-  success: boolean;
-  evolvedPrompt: string;
-  fitness: number;
-  generations: number;
-  improvements: Array<{
-    generation: number;
-    fitness: number;
-    improvement: number;
+export interface AKIHScoreResult {
+  score: number;
+  level: string;
+  dimensions: Record<string, number>;
+  recommendations: Array<{
+    dimension: string;
+    priority: string;
+    message: string;
   }>;
 }
 
 /**
- * EVIDENRA API Client
+ * EVIDENRA API Client - Prompt-Only Architecture
  */
 export class EvidenraClient {
   private serverUrl: string;
@@ -90,8 +57,12 @@ export class EvidenraClient {
   private accessToken: string | null = null;
   private onAuthError?: () => void;
 
+  // Cache für Prompts (vermeidet wiederholte Server-Aufrufe)
+  private promptCache: Map<string, { data: any; timestamp: number }> = new Map();
+  private cacheTimeout = 5 * 60 * 1000; // 5 Minuten
+
   constructor(config: EvidenraClientConfig) {
-    this.serverUrl = config.serverUrl || 'https://api.evidenra.app';
+    this.serverUrl = config.serverUrl || 'https://evidenra-analysis-server-production-ad93.up.railway.app';
     this.supabaseUrl = config.supabaseUrl;
     this.supabaseAnonKey = config.supabaseAnonKey;
     this.subscription = config.subscription;
@@ -114,17 +85,11 @@ export class EvidenraClient {
 
   /**
    * Prüft ob Feature verfügbar ist
-   *
-   * Feature-Matrix:
-   * - free: basic-analysis
-   * - basic: akih, genesis, 3-personas
-   * - pro: akih, genesis, 7-personas, advanced-methodologies
-   * - ultimate: alles + team-collaboration + quantum-coding
    */
   hasFeature(feature: 'genesis' | 'akih' | 'personas' | 'advanced-methodologies' | 'team-collaboration' | 'quantum-coding'): boolean {
     const features = {
       free: [],
-      basic: ['akih', 'genesis', 'personas'],  // Basic hat auch Genesis!
+      basic: ['akih', 'genesis', 'personas'],
       pro: ['akih', 'genesis', 'personas', 'advanced-methodologies'],
       ultimate: ['akih', 'genesis', 'personas', 'advanced-methodologies', 'team-collaboration', 'quantum-coding']
     };
@@ -169,107 +134,136 @@ export class EvidenraClient {
     return response.json();
   }
 
+  /**
+   * Cached Request
+   */
+  private async cachedRequest<T>(cacheKey: string, endpoint: string): Promise<T> {
+    const cached = this.promptCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+      return cached.data as T;
+    }
+
+    const data = await this.request<T>(endpoint);
+    this.promptCache.set(cacheKey, { data, timestamp: Date.now() });
+    return data;
+  }
+
   // ==========================================
-  // ANALYSE ENDPOINTS
+  // PROMPT ENDPOINTS - Holt geschützte Prompts
   // ==========================================
 
   /**
-   * Führt Analyse durch
-   * Verfügbar für: alle Subscriptions
+   * Holt Methodologie-Prompts (Mayring, Grounded Theory, etc.)
+   * Diese Prompts werden dann lokal mit AIBridge verwendet
    */
-  async analyze(request: AnalyzeRequest): Promise<AnalyzeResponse> {
-    return this.request<AnalyzeResponse>('/api/analyze', {
-      method: 'POST',
-      body: JSON.stringify(request)
-    });
+  async getMethodologyPrompts(
+    methodology: 'mayring' | 'grounded-theory' | 'thematic' | 'discourse',
+    options?: { approach?: string }
+  ): Promise<MethodologyPrompts> {
+    const queryParams = options?.approach ? `?approach=${options.approach}` : '';
+    const response = await this.cachedRequest<any>(
+      `methodology-${methodology}-${options?.approach || 'default'}`,
+      `/api/prompts/methodology/${methodology}${queryParams}`
+    );
+    return response.prompts;
   }
 
   /**
-   * Berechnet AKIH Score
-   * Verfügbar für: basic, pro, ultimate
+   * Holt verfügbare Persona-Prompts (je nach Subscription)
+   */
+  async getPersonaPrompts(): Promise<Record<string, PersonaPrompt>> {
+    const response = await this.cachedRequest<any>(
+      `personas-${this.subscription}`,
+      '/api/prompts/personas'
+    );
+    return response.personas;
+  }
+
+  /**
+   * Holt Genesis Engine Konfiguration (nur Pro/Ultimate)
+   */
+  async getGenesisConfig(): Promise<{
+    defaultParameters: any;
+    mutationOperators: any[];
+    fitnessMetrics: any;
+  }> {
+    if (!this.hasFeature('genesis')) {
+      throw new Error('Genesis Engine requires Basic or higher subscription');
+    }
+    return this.cachedRequest('/api/prompts/genesis', '/api/prompts/genesis');
+  }
+
+  // ==========================================
+  // SCORING ENDPOINTS - Server berechnet Scores
+  // ==========================================
+
+  /**
+   * Sendet Analyse-Ergebnisse zur AKIH-Bewertung
+   * Die KI-Analyse wurde lokal durchgeführt, der Score wird serverseitig berechnet
    */
   async calculateAKIHScore(data: {
-    codings: any[];
+    codings: Array<{
+      text: string;
+      category: string;
+      reasoning?: string;
+      confidence?: number;
+    }>;
     text: string;
     methodology?: string;
-  }): Promise<any> {
+    categories?: Array<{
+      name: string;
+      definition?: string;
+      anchorExample?: string;
+    }>;
+  }): Promise<AKIHScoreResult> {
     if (!this.hasFeature('akih')) {
       throw new Error('AKIH Scoring requires Basic or higher subscription');
     }
 
-    return this.request('/api/score', {
+    return this.request('/api/score/akih', {
       method: 'POST',
       body: JSON.stringify(data)
     });
   }
 
   /**
-   * Generiert Kategorien automatisch
-   * Verfügbar für: alle Subscriptions
+   * Holt AKIH Dimensionen und Level-Definitionen
    */
-  async generateCategories(data: {
-    codings: any[];
-    methodology?: string;
-    existingCategories?: any[];
-  }): Promise<any> {
-    return this.request('/api/generate-categories', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  }
-
-  // ==========================================
-  // PERSONA ENDPOINTS
-  // ==========================================
-
-  /**
-   * Analysiert Text mit mehreren Personas
-   * Verfügbar für: pro, ultimate
-   */
-  async analyzeWithPersonas(data: {
-    text: string;
-    personas: string[];
-  }): Promise<any> {
-    if (!this.hasFeature('personas')) {
-      throw new Error('Multi-Persona Analysis requires Pro or higher subscription');
+  async getAKIHDimensions(): Promise<{
+    dimensions: Record<string, { name: string; description: string; weight: number }>;
+    levels: Record<string, { min: number; max: number; description: string }>;
+  }> {
+    if (!this.hasFeature('akih')) {
+      throw new Error('AKIH Scoring requires Basic or higher subscription');
     }
+    return this.cachedRequest('akih-dimensions', '/api/score/akih/dimensions');
+  }
 
-    return this.request('/api/personas/analyze', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
+  // ==========================================
+  // FEATURE INFO
+  // ==========================================
+
+  /**
+   * Gibt verfügbare Features zurück
+   */
+  async getFeatures(): Promise<{
+    subscription: string;
+    features: any;
+  }> {
+    return this.request('/api/features');
   }
 
   /**
-   * Gibt verfügbare Personas zurück
+   * Gibt Liste aller Personas mit Verfügbarkeit zurück
    */
-  async getAvailablePersonas(): Promise<Array<{
+  async getPersonaList(): Promise<Array<{
     key: string;
     name: string;
     description: string;
+    available: boolean;
   }>> {
-    return this.request('/api/personas/list', {
-      method: 'GET'
-    });
-  }
-
-  // ==========================================
-  // GENESIS ENDPOINTS
-  // ==========================================
-
-  /**
-   * Evolviert einen Prompt mit Genesis Engine
-   * Verfügbar für: pro, ultimate
-   */
-  async evolvePrompt(request: GenesisEvolveRequest): Promise<GenesisEvolveResponse> {
-    if (!this.hasFeature('genesis')) {
-      throw new Error('Genesis Engine requires Pro or higher subscription');
-    }
-
-    return this.request<GenesisEvolveResponse>('/api/genesis/evolve', {
-      method: 'POST',
-      body: JSON.stringify(request)
-    });
+    const response = await this.request<any>('/api/personas/list');
+    return response.personas;
   }
 
   // ==========================================
@@ -277,7 +271,7 @@ export class EvidenraClient {
   // ==========================================
 
   /**
-   * Prüft Server-Verfügbarkeit
+   * Prüft Server-Verfügbarkeit (ohne Auth)
    */
   async healthCheck(): Promise<{
     status: string;
@@ -289,12 +283,7 @@ export class EvidenraClient {
   }
 
   /**
-   * Gibt Subscription-Features zurück
-   *
-   * Feature-Matrix nach Produktversion:
-   * - Basic (7.6): AKIH, Genesis, 3 Personas, Mayring/Thematic
-   * - Pro (1.0): Basic + 7 Personas, Grounded Theory, Discourse
-   * - Ultimate (1.0): Pro + Team Collaboration, Quantum Coding, unlimited
+   * Gibt Subscription-Features zurück (lokale Berechnung)
    */
   getSubscriptionFeatures(): {
     subscription: string;
@@ -313,41 +302,38 @@ export class EvidenraClient {
         limits: {
           maxDocuments: 3,
           maxAnalysesPerDay: 5,
-          personas: ['orthodox'],
-          methodologies: ['basic'],
+          personas: ['orthodox'] as string[],
+          methodologies: ['basic'] as string[],
           genesis: false
         }
       },
       basic: {
-        // EVIDENRA Basic 7.6 hat: AKIH, Genesis, 3 Personas
         features: ['basic-analysis', 'akih', 'genesis', 'personas'],
         limits: {
           maxDocuments: 20,
           maxAnalysesPerDay: 100,
-          personas: ['orthodox', 'hermeneutic', 'critical'],  // 3 Personas
-          methodologies: ['mayring', 'thematic'],
+          personas: ['orthodox', 'hermeneutic', 'critical'] as string[],
+          methodologies: ['mayring', 'thematic'] as string[],
           genesis: true
         }
       },
       pro: {
-        // EVIDENRA Pro 1.0 hat: Basic + 7 Personas, mehr Methodologien
         features: ['basic-analysis', 'akih', 'genesis', 'personas', 'advanced-methodologies'],
         limits: {
           maxDocuments: 100,
           maxAnalysesPerDay: 500,
-          personas: ['orthodox', 'hermeneutic', 'critical', 'phenomenological', 'feminist', 'pragmatist', 'deconstructionist'],  // 7 Personas
-          methodologies: ['mayring', 'thematic', 'grounded-theory', 'discourse'],
+          personas: ['orthodox', 'hermeneutic', 'critical', 'phenomenological', 'feminist', 'pragmatist', 'deconstructionist'] as string[],
+          methodologies: ['mayring', 'thematic', 'grounded-theory', 'discourse'] as string[],
           genesis: true
         }
       },
       ultimate: {
-        // EVIDENRA Ultimate 1.0 hat: alles + Team + Quantum
         features: ['basic-analysis', 'akih', 'genesis', 'personas', 'advanced-methodologies', 'team-collaboration', 'quantum-coding'],
         limits: {
           maxDocuments: -1,
           maxAnalysesPerDay: -1,
-          personas: 'all',
-          methodologies: 'all',
+          personas: 'all' as const,
+          methodologies: 'all' as const,
           genesis: true
         }
       }
@@ -357,6 +343,13 @@ export class EvidenraClient {
       subscription: this.subscription,
       ...features[this.subscription] || features.free
     };
+  }
+
+  /**
+   * Leert den Prompt-Cache
+   */
+  clearCache() {
+    this.promptCache.clear();
   }
 }
 

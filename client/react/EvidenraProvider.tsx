@@ -1,11 +1,16 @@
 /**
- * EVIDENRA React Provider
+ * EVIDENRA React Provider - Prompt-Only Architecture
  *
  * Für Integration in Basic, Pro, Ultimate und PWA
+ *
+ * Der Provider:
+ * 1. Holt geschützte Prompts vom Server
+ * 2. Stellt sie der App zur Verfügung für lokale KI-Aufrufe
+ * 3. Sendet Ergebnisse zur AKIH-Bewertung
  */
 
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
-import { EvidenraClient, EvidenraClientConfig, AnalyzeRequest, AnalyzeResponse } from '../EvidenraClient';
+import { EvidenraClient, EvidenraClientConfig, MethodologyPrompts, PersonaPrompt, AKIHScoreResult } from '../EvidenraClient';
 
 interface EvidenraContextType {
   client: EvidenraClient | null;
@@ -14,21 +19,19 @@ interface EvidenraContextType {
   subscription: string;
   error: string | null;
 
-  // Analyse
-  analyze: (request: AnalyzeRequest) => Promise<AnalyzeResponse>;
-  calculateAKIHScore: (data: any) => Promise<any>;
-  generateCategories: (data: any) => Promise<any>;
+  // Prompt Fetching
+  getMethodologyPrompts: (methodology: string, options?: any) => Promise<MethodologyPrompts>;
+  getPersonaPrompts: () => Promise<Record<string, PersonaPrompt>>;
+  getGenesisConfig: () => Promise<any>;
 
-  // Personas
-  analyzeWithPersonas: (data: any) => Promise<any>;
-  getAvailablePersonas: () => Promise<any>;
-
-  // Genesis
-  evolvePrompt: (data: any) => Promise<any>;
+  // Scoring
+  calculateAKIHScore: (data: any) => Promise<AKIHScoreResult>;
+  getAKIHDimensions: () => Promise<any>;
 
   // Feature Check
   hasFeature: (feature: string) => boolean;
   getSubscriptionFeatures: () => any;
+  getPersonaList: () => Promise<any>;
 }
 
 const EvidenraContext = createContext<EvidenraContextType | null>(null);
@@ -93,9 +96,19 @@ export function EvidenraProvider({
   }, [client, config.subscription]);
 
   // Wrapped Methods
-  const analyze = useCallback(async (request: AnalyzeRequest) => {
+  const getMethodologyPrompts = useCallback(async (methodology: string, options?: any) => {
     if (!client) throw new Error('Client not initialized');
-    return client.analyze(request);
+    return client.getMethodologyPrompts(methodology as any, options);
+  }, [client]);
+
+  const getPersonaPrompts = useCallback(async () => {
+    if (!client) throw new Error('Client not initialized');
+    return client.getPersonaPrompts();
+  }, [client]);
+
+  const getGenesisConfig = useCallback(async () => {
+    if (!client) throw new Error('Client not initialized');
+    return client.getGenesisConfig();
   }, [client]);
 
   const calculateAKIHScore = useCallback(async (data: any) => {
@@ -103,24 +116,9 @@ export function EvidenraProvider({
     return client.calculateAKIHScore(data);
   }, [client]);
 
-  const generateCategories = useCallback(async (data: any) => {
+  const getAKIHDimensions = useCallback(async () => {
     if (!client) throw new Error('Client not initialized');
-    return client.generateCategories(data);
-  }, [client]);
-
-  const analyzeWithPersonas = useCallback(async (data: any) => {
-    if (!client) throw new Error('Client not initialized');
-    return client.analyzeWithPersonas(data);
-  }, [client]);
-
-  const getAvailablePersonas = useCallback(async () => {
-    if (!client) throw new Error('Client not initialized');
-    return client.getAvailablePersonas();
-  }, [client]);
-
-  const evolvePrompt = useCallback(async (data: any) => {
-    if (!client) throw new Error('Client not initialized');
-    return client.evolvePrompt(data);
+    return client.getAKIHDimensions();
   }, [client]);
 
   const hasFeature = useCallback((feature: string) => {
@@ -133,20 +131,25 @@ export function EvidenraProvider({
     return client.getSubscriptionFeatures();
   }, [client]);
 
+  const getPersonaList = useCallback(async () => {
+    if (!client) throw new Error('Client not initialized');
+    return client.getPersonaList();
+  }, [client]);
+
   const value: EvidenraContextType = {
     client,
     isReady,
     isAuthenticated,
     subscription: config.subscription,
     error,
-    analyze,
+    getMethodologyPrompts,
+    getPersonaPrompts,
+    getGenesisConfig,
     calculateAKIHScore,
-    generateCategories,
-    analyzeWithPersonas,
-    getAvailablePersonas,
-    evolvePrompt,
+    getAKIHDimensions,
     hasFeature,
-    getSubscriptionFeatures
+    getSubscriptionFeatures,
+    getPersonaList
   };
 
   return (
@@ -168,80 +171,19 @@ export function useEvidenra(): EvidenraContextType {
 }
 
 /**
- * Hook für Analyse
+ * Hook für Methodologie-Prompts
+ * Holt die geschützten Prompts für eine bestimmte Methodologie
  */
-export function useAnalysis() {
-  const { analyze, calculateAKIHScore, generateCategories, isReady, isAuthenticated, error } = useEvidenra();
+export function useMethodologyPrompts(methodology: 'mayring' | 'grounded-theory' | 'thematic' | 'discourse') {
+  const { getMethodologyPrompts, isReady, isAuthenticated } = useEvidenra();
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
-
-  const runAnalysis = useCallback(async (request: AnalyzeRequest) => {
-    if (!isReady || !isAuthenticated) {
-      setAnalysisError('Nicht bereit oder nicht authentifiziert');
-      return null;
-    }
-
-    setIsLoading(true);
-    setAnalysisError(null);
-
-    try {
-      const result = await analyze(request);
-      setAnalysisResult(result);
-      return result;
-    } catch (err: any) {
-      setAnalysisError(err.message);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [analyze, isReady, isAuthenticated]);
-
-  return {
-    runAnalysis,
-    calculateAKIHScore,
-    generateCategories,
-    isLoading,
-    result: analysisResult,
-    error: analysisError || error,
-    isReady,
-    isAuthenticated
-  };
-}
-
-/**
- * Hook für Personas
- */
-export function usePersonas() {
-  const { analyzeWithPersonas, getAvailablePersonas, hasFeature, isReady, isAuthenticated } = useEvidenra();
-
-  const [personas, setPersonas] = useState<any[]>([]);
+  const [prompts, setPrompts] = useState<MethodologyPrompts | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isAvailable = hasFeature('personas');
-
-  const loadPersonas = useCallback(async () => {
-    if (!isAvailable || !isReady) return;
-
-    try {
-      const available = await getAvailablePersonas();
-      setPersonas(available);
-    } catch (err: any) {
-      setError(err.message);
-    }
-  }, [getAvailablePersonas, isAvailable, isReady]);
-
-  useEffect(() => {
-    if (isReady && isAuthenticated && isAvailable) {
-      loadPersonas();
-    }
-  }, [isReady, isAuthenticated, isAvailable, loadPersonas]);
-
-  const analyze = useCallback(async (text: string, selectedPersonas: string[]) => {
-    if (!isAvailable) {
-      setError('Personas require Pro or higher subscription');
+  const fetchPrompts = useCallback(async (options?: { approach?: string }) => {
+    if (!isReady || !isAuthenticated) {
+      setError('Nicht bereit oder nicht authentifiziert');
       return null;
     }
 
@@ -249,18 +191,125 @@ export function usePersonas() {
     setError(null);
 
     try {
-      return await analyzeWithPersonas({ text, personas: selectedPersonas });
+      const result = await getMethodologyPrompts(methodology, options);
+      setPrompts(result);
+      return result;
     } catch (err: any) {
       setError(err.message);
       return null;
     } finally {
       setIsLoading(false);
     }
-  }, [analyzeWithPersonas, isAvailable]);
+  }, [getMethodologyPrompts, methodology, isReady, isAuthenticated]);
 
   return {
-    personas,
-    analyze,
+    prompts,
+    fetchPrompts,
+    isLoading,
+    error,
+    isReady,
+    isAuthenticated
+  };
+}
+
+/**
+ * Hook für Persona-Prompts
+ */
+export function usePersonaPrompts() {
+  const { getPersonaPrompts, getPersonaList, hasFeature, isReady, isAuthenticated } = useEvidenra();
+
+  const [prompts, setPrompts] = useState<Record<string, PersonaPrompt>>({});
+  const [personaList, setPersonaList] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isAvailable = hasFeature('personas');
+
+  const fetchPrompts = useCallback(async () => {
+    if (!isAvailable || !isReady || !isAuthenticated) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const [promptsResult, listResult] = await Promise.all([
+        getPersonaPrompts(),
+        getPersonaList()
+      ]);
+      setPrompts(promptsResult);
+      setPersonaList(listResult);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getPersonaPrompts, getPersonaList, isAvailable, isReady, isAuthenticated]);
+
+  useEffect(() => {
+    if (isReady && isAuthenticated && isAvailable) {
+      fetchPrompts();
+    }
+  }, [isReady, isAuthenticated, isAvailable, fetchPrompts]);
+
+  return {
+    prompts,
+    personaList,
+    fetchPrompts,
+    isLoading,
+    error,
+    isAvailable
+  };
+}
+
+/**
+ * Hook für AKIH Scoring
+ */
+export function useAKIHScoring() {
+  const { calculateAKIHScore, getAKIHDimensions, hasFeature, isReady, isAuthenticated } = useEvidenra();
+
+  const [dimensions, setDimensions] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isAvailable = hasFeature('akih');
+
+  // Lade Dimensionen beim Start
+  useEffect(() => {
+    if (isReady && isAuthenticated && isAvailable) {
+      getAKIHDimensions()
+        .then(setDimensions)
+        .catch((err) => setError(err.message));
+    }
+  }, [isReady, isAuthenticated, isAvailable, getAKIHDimensions]);
+
+  const calculateScore = useCallback(async (data: {
+    codings: any[];
+    text: string;
+    methodology?: string;
+    categories?: any[];
+  }): Promise<AKIHScoreResult | null> => {
+    if (!isAvailable) {
+      setError('AKIH Scoring requires Basic or higher subscription');
+      return null;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await calculateAKIHScore(data);
+      return result;
+    } catch (err: any) {
+      setError(err.message);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [calculateAKIHScore, isAvailable]);
+
+  return {
+    calculateScore,
+    dimensions,
     isLoading,
     error,
     isAvailable
@@ -271,48 +320,45 @@ export function usePersonas() {
  * Hook für Genesis Engine
  */
 export function useGenesis() {
-  const { evolvePrompt, hasFeature, isReady, isAuthenticated } = useEvidenra();
+  const { getGenesisConfig, hasFeature, isReady, isAuthenticated } = useEvidenra();
 
-  const [isEvolving, setIsEvolving] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [config, setConfig] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isAvailable = hasFeature('genesis');
 
-  const evolve = useCallback(async (prompt: string, options?: {
-    fitness?: 'quality' | 'speed' | 'accuracy';
-    generations?: number;
-    populationSize?: number;
-  }) => {
+  const fetchConfig = useCallback(async () => {
     if (!isAvailable) {
-      setError('Genesis Engine requires Pro or higher subscription');
+      setError('Genesis Engine requires Basic or higher subscription');
       return null;
     }
 
-    setIsEvolving(true);
-    setProgress(0);
+    setIsLoading(true);
     setError(null);
 
     try {
-      const result = await evolvePrompt({
-        prompt,
-        ...options
-      });
-
-      setProgress(100);
+      const result = await getGenesisConfig();
+      setConfig(result);
       return result;
     } catch (err: any) {
       setError(err.message);
       return null;
     } finally {
-      setIsEvolving(false);
+      setIsLoading(false);
     }
-  }, [evolvePrompt, isAvailable]);
+  }, [getGenesisConfig, isAvailable]);
+
+  useEffect(() => {
+    if (isReady && isAuthenticated && isAvailable) {
+      fetchConfig();
+    }
+  }, [isReady, isAuthenticated, isAvailable, fetchConfig]);
 
   return {
-    evolve,
-    isEvolving,
-    progress,
+    config,
+    fetchConfig,
+    isLoading,
     error,
     isAvailable
   };

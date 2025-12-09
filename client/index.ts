@@ -1,7 +1,12 @@
 /**
- * EVIDENRA Client SDK
+ * EVIDENRA Client SDK - Prompt-Only Architecture
  *
  * Drop-in Integration für Basic, Pro, Ultimate und PWA
+ *
+ * NEUE ARCHITEKTUR:
+ * - Server liefert nur geschützte Prompts
+ * - App führt KI-Aufrufe selbst durch (AIBridge/Ollama/Claude)
+ * - Server berechnet AKIH-Scores aus den Ergebnissen
  *
  * Installation:
  * 1. Kopiere diesen Ordner nach src/services/evidenra-client/
@@ -12,27 +17,27 @@
 export { EvidenraClient, createEvidenraClient } from './EvidenraClient';
 export type {
   EvidenraClientConfig,
-  AnalyzeRequest,
-  AnalyzeResponse,
-  GenesisEvolveRequest,
-  GenesisEvolveResponse
+  MethodologyPrompts,
+  PersonaPrompt,
+  AKIHScoreResult
 } from './EvidenraClient';
 
 // React Integration
 export {
   EvidenraProvider,
   useEvidenra,
-  useAnalysis,
-  usePersonas,
+  useMethodologyPrompts,
+  usePersonaPrompts,
+  useAKIHScoring,
   useGenesis
 } from './react/EvidenraProvider';
 
 // Version Info
-export const SDK_VERSION = '1.0.0';
-export const SERVER_URL = 'https://api.evidenra.app';
+export const SDK_VERSION = '2.0.0';
+export const SERVER_URL = 'https://evidenra-analysis-server-production-ad93.up.railway.app';
 
 /**
- * Quick-Start Beispiel:
+ * Quick-Start Beispiel (Neue Architektur):
  *
  * ```tsx
  * // In App.tsx
@@ -55,30 +60,56 @@ export const SERVER_URL = 'https://api.evidenra.app';
  *   );
  * }
  *
- * // In einer Komponente
- * import { useAnalysis, useGenesis } from './services/evidenra-client';
+ * // In einer Analyse-Komponente
+ * import { useMethodologyPrompts, useAKIHScoring } from './services/evidenra-client';
+ * import { useAIBridge } from '../AIBridge'; // Dein lokaler AI Service
  *
  * function AnalysisPage() {
- *   const { runAnalysis, isLoading, result } = useAnalysis();
- *   const { evolve, isAvailable: hasGenesis } = useGenesis();
+ *   const { prompts, fetchPrompts } = useMethodologyPrompts('mayring');
+ *   const { calculateScore } = useAKIHScoring();
+ *   const aiBridge = useAIBridge();
  *
- *   const handleAnalyze = async () => {
- *     const result = await runAnalysis({
- *       text: "Interview-Text hier...",
- *       methodology: 'mayring',
- *       personas: ['orthodox', 'critical']
+ *   const handleAnalyze = async (text: string) => {
+ *     // 1. Hole geschützte Prompts vom Server
+ *     const methodologyPrompts = await fetchPrompts();
+ *
+ *     // 2. Führe KI-Analyse lokal durch (mit eigenem API Key)
+ *     const aiResult = await aiBridge.analyze({
+ *       systemPrompt: methodologyPrompts.systemPrompt,
+ *       userPrompt: methodologyPrompts.userPromptTemplate.replace('{{text}}', text),
+ *       // API Key kommt von User-Einstellungen
  *     });
- *     console.log(result);
+ *
+ *     // 3. Parse das Ergebnis
+ *     const codings = JSON.parse(aiResult).codings;
+ *
+ *     // 4. Berechne AKIH-Score auf dem Server (geschützter Algorithmus)
+ *     const score = await calculateScore({
+ *       codings,
+ *       text,
+ *       methodology: 'mayring'
+ *     });
+ *
+ *     console.log('AKIH Score:', score);
  *   };
  *
  *   return (
  *     <div>
- *       <button onClick={handleAnalyze} disabled={isLoading}>
- *         {isLoading ? 'Analysiere...' : 'Analyse starten'}
+ *       <button onClick={() => handleAnalyze(documentText)}>
+ *         Analyse starten
  *       </button>
- *       {result && <pre>{JSON.stringify(result, null, 2)}</pre>}
  *     </div>
  *   );
  * }
  * ```
+ *
+ * Unterschied zur alten Architektur:
+ * - FRÜHER: Server machte komplette KI-Analyse
+ * - JETZT: Server liefert nur Prompts, App macht KI-Analyse mit eigenem Key
+ *
+ * Vorteile:
+ * - User behält Kontrolle über seinen API Key
+ * - Funktioniert auch mit lokalen Modellen (Ollama)
+ * - Geschützte Prompts sind trotzdem sicher auf dem Server
+ * - AKIH-Algorithmus bleibt geschützt
  */
